@@ -2,7 +2,7 @@
 
 An AI-powered healthcare information system that provides safe, accurate, and accessible medical information through multiple interfaces. Built with a safety-first approach using WHO ICD-11, OpenFDA, and Google Gemini APIs.
 
-**🎯 Built for the 2-hour hackathon timeframe with production-ready architecture and comprehensive medical safety features.**
+**🎯 Built for hackathon  with production-ready architecture and comprehensive medical safety features.**
 
 ## 🌟 Key Features
 
