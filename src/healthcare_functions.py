@@ -185,14 +185,16 @@ class HealthcareFunctions:
                     result["recalls"] = recalls.get('recalls', [])
                 
                 if include_adverse_events:
-                    adverse_events = await fda_client.get_adverse_events(drug_name)
-                    result["adverse_events"] = adverse_events.get('adverse_events', [])
+                    adverse_events_data = await fda_client.get_adverse_events(drug_name)
+                    result["adverse_events"] = adverse_events_data.get('adverse_events', [])
+                    result["top_reactions"] = adverse_events_data.get('top_reactions', [])
                 
                 # Generate summary
                 result["summary"] = {
                     "total_recalls": len(result["recalls"]),
                     "total_adverse_events": len(result["adverse_events"]),
-                    "has_safety_concerns": len(result["recalls"]) > 0 or len(result["adverse_events"]) > 0
+                    "has_safety_concerns": len(result["recalls"]) > 0 or len(result["adverse_events"]) > 0,
+                    "top_reactions": result["top_reactions"]
                 }
                 
             else:

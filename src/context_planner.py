@@ -6,6 +6,7 @@ Integrates conversation memory and user preferences into planning
 import asyncio
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
+import re # Added for improved entity extraction
 
 from src.planner import QueryPlanner, QueryPlan, UrgencyLevel
 from src.models import MedicalQuery, QueryType
@@ -498,22 +499,116 @@ class ContextAwarePlanner:
         return plan
     
     def _extract_entities_from_text(self, text: str) -> List[str]:
-        """Extract basic entities from text"""
+        """Extract basic entities from text using generic NLP approaches"""
         entities = []
         
-        # Common medical terms
-        medical_terms = [
-            'diabetes', 'hypertension', 'asthma', 'cancer', 'heart disease',
-            'aspirin', 'ibuprofen', 'metformin', 'insulin', 'lisinopril',
-            'headache', 'fever', 'pain', 'nausea', 'fatigue', 'dizziness'
+        text_lower = text.lower()
+        
+        # Generic symptom extraction patterns - more flexible
+        symptom_patterns = [
+            # "I have X" patterns
+            r'i have (\w+(?:\s+\w+)*)',
+            r'i\'m having (\w+(?:\s+\w+)*)',
+            r'i am having (\w+(?:\s+\w+)*)',
+            r'i\'ve been having (\w+(?:\s+\w+)*)',
+            r'i have been having (\w+(?:\s+\w+)*)',
+            
+            # "symptoms:" patterns
+            r'symptoms?[:\s]+(\w+(?:\s+\w+)*)',
+            r'my symptoms?[:\s]+(\w+(?:\s+\w+)*)',
+            
+            # "experiencing" patterns
+            r'i\'m experiencing (\w+(?:\s+\w+)*)',
+            r'i am experiencing (\w+(?:\s+\w+)*)',
+            r'experiencing (\w+(?:\s+\w+)*)',
+            
+            # "feeling" patterns
+            r'i\'m feeling (\w+(?:\s+\w+)*)',
+            r'i am feeling (\w+(?:\s+\w+)*)',
+            r'feeling (\w+(?:\s+\w+)*)',
+            
+            # "suffering from" patterns
+            r'suffering from (\w+(?:\s+\w+)*)',
+            r'i\'m suffering from (\w+(?:\s+\w+)*)',
+            
+            # Generic pain patterns
+            r'(\w+(?:\s+\w+)*)\s+pain',
+            r'pain in (\w+(?:\s+\w+)*)',
+            r'(\w+(?:\s+\w+)*)\s+ache',
+            r'ache in (\w+(?:\s+\w+)*)',
+            
+            # Generic symptom patterns
+            r'(\w+(?:\s+\w+)*)\s+discomfort',
+            r'(\w+(?:\s+\w+)*)\s+problem',
+            r'(\w+(?:\s+\w+)*)\s+issue',
+            r'(\w+(?:\s+\w+)*)\s+trouble',
+            
+            # Drug/medication patterns
+            r'tell me about (\w+(?:\s+\w+)*)',
+            r'what about (\w+(?:\s+\w+)*)',
+            r'(\w+(?:\s+\w+)*)\s+side effects',
+            r'(\w+(?:\s+\w+)*)\s+safety',
+            r'(\w+(?:\s+\w+)*)\s+recall',
+            r'drug (\w+(?:\s+\w+)*)',
+            r'medication (\w+(?:\s+\w+)*)',
+            r'medicine (\w+(?:\s+\w+)*)',
         ]
         
-        text_lower = text.lower()
-        for term in medical_terms:
-            if term in text_lower:
+        for pattern in symptom_patterns:
+            matches = re.findall(pattern, text_lower)
+            for match in matches:
+                if match and len(match) > 2:
+                    # Clean up the match and add it
+                    clean_match = match.strip()
+                    if clean_match and len(clean_match) > 2:
+                        entities.append(clean_match)
+        
+        # Generic symptom phrase extraction after common indicators
+        symptom_indicators = [
+            'symptoms:', 'having', 'experiencing', 'feeling', 'suffering',
+            'problem with', 'issue with', 'trouble with', 'discomfort in',
+            'pain in', 'ache in', 'problem in', 'issue in'
+        ]
+        
+        for indicator in symptom_indicators:
+            if indicator in text_lower:
+                # Find text after the indicator
+                parts = text_lower.split(indicator)
+                if len(parts) > 1:
+                    symptom_text = parts[1].strip()
+                    # Extract meaningful symptom phrases (2-4 words)
+                    words = symptom_text.split()
+                    if len(words) >= 2:
+                        # Look for meaningful symptom phrases
+                        for i in range(len(words) - 1):
+                            for phrase_length in [2, 3, 4]:  # Try 2, 3, or 4 word phrases
+                                if i + phrase_length <= len(words):
+                                    phrase = ' '.join(words[i:i+phrase_length])
+                                    # Filter out common stop words and short phrases
+                                    if (len(phrase) > 3 and 
+                                        not any(word in ['and', 'or', 'with', 'the', 'a', 'an', 'my', 'is', 'are', 'was', 'were', 'been', 'have', 'has', 'had'] 
+                                               for word in words[i:i+phrase_length])):
+                                        entities.append(phrase)
+        
+        # Extract quoted terms
+        quoted_terms = re.findall(r'"([^"]+)"', text)
+        entities.extend(quoted_terms)
+        
+        # Extract capitalized terms (potential proper nouns) - but be more selective
+        # Only extract if they're not common words
+        common_words = {
+            'tell', 'what', 'how', 'when', 'where', 'why', 'about', 'side', 'effects', 
+            'safety', 'recall', 'i', 'am', 'have', 'having', 'these', 'symptoms',
+            'my', 'is', 'are', 'was', 'were', 'been', 'has', 'had', 'the', 'a', 'an',
+            'and', 'or', 'with', 'in', 'on', 'at', 'to', 'for', 'of', 'from'
+        }
+        capitalized_terms = re.findall(r'\b[A-Z][a-z]+\b', text)
+        for term in capitalized_terms:
+            if term.lower() not in common_words and len(term) > 2:
                 entities.append(term)
         
-        return entities
+        # Remove duplicates and return
+        return list(set(entities))
     
     def get_context_statistics(self) -> Dict[str, Any]:
         """Get statistics about context-aware planning capabilities"""

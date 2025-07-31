@@ -17,16 +17,28 @@ def setup_logging() -> logging.Logger:
     # Configure logging
     log_filename = os.path.join(Config.LOGS_DIR, f"healthcare_navigator_{datetime.now().strftime('%Y%m%d')}.log")
     
-    logging.basicConfig(
-        level=getattr(logging, Config.LOG_LEVEL.upper()),
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(log_filename),
-            logging.StreamHandler()
-        ]
-    )
+    # Create logger
+    logger = logging.getLogger('healthcare_navigator')
+    logger.setLevel(getattr(logging, Config.LOG_LEVEL.upper()))
     
-    return logging.getLogger('healthcare_navigator')
+    # Clear existing handlers if any
+    if logger.handlers:
+        logger.handlers.clear()
+    
+    # Create formatter
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    
+    # File handler with UTF-8 encoding
+    file_handler = logging.FileHandler(log_filename, encoding='utf-8')
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+    
+    # Console handler with UTF-8 encoding
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+    
+    return logger
 
 def sanitize_input(text: str) -> str:
     """Sanitize user input to prevent injection attacks and ensure safe processing"""

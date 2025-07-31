@@ -8,6 +8,7 @@ from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 import time
 from datetime import datetime
+import traceback # Add this line
 
 from src.planner import QueryPlan
 from src.api_manager import APIManager
@@ -143,7 +144,9 @@ class ToolExecutor:
             input_data.update({
                 'query_entities': plan.key_entities,
                 'urgency_level': plan.urgency_level.value,
-                'context': context
+                'context': context,
+                'plan_context': getattr(plan, 'context', []), # Pass context from plan
+                'query_text': getattr(plan, 'query_text', '') # Pass original query text
             })
             
             # Execute tool with timeout and retry logic
@@ -176,6 +179,7 @@ class ToolExecutor:
         except Exception as e:
             execution_time = time.time() - start_time
             logger.error(f"Step execution failed: {e}")
+            logger.error(traceback.format_exc()) # Add this line to log the full traceback
             
             # Update failure statistics
             self.execution_stats['failed_executions'] += 1
@@ -300,11 +304,41 @@ class ToolExecutor:
         entities = input_data.get('query_entities', [])
         term = input_data.get('term', '')
         
+        logger.debug(f"Medical term lookup input - entities: {entities}, term: '{term}'")
+        logger.debug(f"Full input_data: {input_data}")
+        
         if not entities and not term:
-            raise ValueError("No medical terms provided for lookup")
+            # Try to extract a term from the query if available
+            query = input_data.get('query_text', '')
+            if query:
+                # Extract potential terms from the query
+                logger.warning("No medical terms provided for lookup - attempting to extract from query")
+                
+                # Remove common words and punctuation
+                import re
+                query_lower = query.lower()
+                query_words = re.findall(r'\b[a-z]{4,}\b', query_lower)  # Find words with 4+ chars
+                
+                # Filter out common words
+                common_words = {'what', 'when', 'where', 'which', 'who', 'why', 'how', 'about', 'tell', 'explain',
+                               'information', 'know', 'learn', 'understand', 'help', 'need', 'want', 'looking',
+                               'searching', 'find', 'please', 'thank', 'thanks', 'hello', 'safe', 'effective'}
+                
+                potential_terms = [word for word in query_words if word not in common_words]
+                
+                if potential_terms:
+                    term = potential_terms[0]  # Use the first potential term
+                    logger.info(f"Extracted potential term from query: '{term}'")
+                else:
+                    logger.error("No medical terms provided for lookup and none could be extracted from query")
+                    raise ValueError("No medical terms provided for lookup")
+            else:
+                logger.error("No medical terms provided for lookup - empty entities and term, and no query text")
+                raise ValueError("No medical terms provided for lookup")
         
         # Use the first entity or provided term
         primary_term = entities[0] if entities else term
+        logger.info(f"Using primary term for lookup: '{primary_term}'")
         
         try:
             # First try WHO ICD API through the API manager
@@ -314,32 +348,36 @@ class ToolExecutor:
                 who_data = who_result.data
                 definition = who_data.get('definition', '')
                 
-                # Use Gemini to simplify the medical explanation if available
-                if definition and self.api_manager.gemini_client:
-                    simplified_prompt = f"""
-                    Please simplify this medical definition for a general audience:
+                # Always use Gemini to provide comprehensive medical explanation
+                if self.api_manager.gemini_client:
+                    # Create comprehensive prompt whether we have WHO definition or not
+                    comprehensive_prompt = f"""
+                    Provide a comprehensive medical explanation for: {primary_term}
                     
-                    Medical Term: {primary_term}
-                    Technical Definition: {definition}
+                    {f"WHO ICD Definition: {definition}" if definition else ""}
                     
-                    Provide:
-                    1. A simple, easy-to-understand explanation
-                    2. Common symptoms if applicable  
-                    3. When to see a doctor
-                    4. Keep it under 200 words
+                    Please include:
+                    1. **What it is**: Clear, simple definition of the condition
+                    2. **Common symptoms**: Key signs and symptoms to watch for
+                    3. **Causes**: Main factors that contribute to this condition
+                    4. **Risk factors**: Who is more likely to develop this condition
+                    5. **When to seek care**: Clear guidance on when to see a healthcare provider
+                    6. **Management**: General approaches to managing this condition
                     
-                    Format as clear, readable text.
+                    Format the response with clear sections and bullet points.
+                    Keep it factual, helpful, and under 400 words.
+                    Always emphasize consulting healthcare professionals for proper diagnosis and treatment.
                     """
                     
                     try:
-                        simplified_result = await self.api_manager.gemini_client.generate_response(simplified_prompt)
-                        if simplified_result.text:
-                            simplified_explanation = simplified_result.text
+                        comprehensive_result = await self.api_manager.gemini_client.generate_response(comprehensive_prompt)
+                        if comprehensive_result.text:
+                            simplified_explanation = comprehensive_result.text
                         else:
-                            simplified_explanation = definition
+                            simplified_explanation = definition or f"Comprehensive information about {primary_term} is being processed."
                     except Exception as e:
-                        logger.warning(f"Gemini simplification failed: {e}")
-                        simplified_explanation = definition
+                        logger.warning(f"Gemini comprehensive explanation failed: {e}")
+                        simplified_explanation = definition or f"Medical information about {primary_term}"
                 else:
                     simplified_explanation = definition or f"Medical information about {primary_term}"
                 
@@ -359,16 +397,19 @@ class ToolExecutor:
                 logger.info(f"WHO API failed, using Gemini fallback for: {primary_term}")
                 
                 fallback_prompt = f"""
-                Provide a clear, accurate medical explanation for: {primary_term}
+                Provide a comprehensive medical explanation for: {primary_term}
                 
-                Include:
-                1. What it is (simple definition)
-                2. Common symptoms or characteristics
-                3. When to seek medical attention
-                4. Important medical disclaimers
+                Please include:
+                1. **What it is**: Clear, simple definition of the condition
+                2. **Common symptoms**: Key signs and symptoms to watch for
+                3. **Causes**: Main factors that contribute to this condition
+                4. **Risk factors**: Who is more likely to develop this condition
+                5. **When to seek care**: Clear guidance on when to see a healthcare provider
+                6. **Management**: General approaches to managing this condition
                 
-                Keep it factual, helpful, and under 200 words.
-                Always remind users to consult healthcare professionals.
+                Format the response with clear sections and bullet points.
+                Keep it factual, helpful, and under 400 words.
+                Always emphasize consulting healthcare professionals for proper diagnosis and treatment.
                 """
                 
                 gemini_result = await self.api_manager.gemini_client.generate_response(fallback_prompt)
@@ -396,6 +437,7 @@ class ToolExecutor:
         drug_name = input_data.get('drug_name', '')
         context = input_data.get('context', {})
         user_allergies = context.get('user_allergies', [])
+        plan_contexts = input_data.get('plan_context', [])
         
         if not entities and not drug_name:
             raise ValueError("No drug names provided for lookup")
@@ -414,6 +456,16 @@ class ToolExecutor:
                 
                 if drug_result.success and drug_result.data:
                     fda_data = drug_result.data
+                    logger.debug(f"Raw FDA data for {primary_drug}: {fda_data}")
+                    
+                    # Log the structure of FDA data to understand available fields
+                    logger.debug(f"FDA data keys: {list(fda_data.keys())}")
+                    if 'adverse_events' in fda_data:
+                        logger.debug(f"Adverse events data: {fda_data['adverse_events']}")
+                    if 'label_info' in fda_data:
+                        logger.debug(f"Label info data: {fda_data['label_info']}")
+                    if 'recalls' in fda_data:
+                        logger.debug(f"Recalls data: {fda_data['recalls']}")
                     
                     # Format comprehensive drug information
                     response_data = {
@@ -446,33 +498,109 @@ class ToolExecutor:
                         'additional_entities': entities[1:] if len(entities) > 1 else []
                     }
                     
+                    # Extract side effects from actual FDA data structure
+                    side_effects = []
+                    
+                    # Try to get side effects from adverse events
+                    if 'adverse_events' in fda_data and fda_data['adverse_events'].get('success'):
+                        adverse_data = fda_data['adverse_events']
+                        if 'summary' in adverse_data and 'top_reactions' in adverse_data['summary']:
+                            top_reactions = adverse_data['summary']['top_reactions']
+                            for reaction, count in top_reactions:
+                                side_effects.append(f"{reaction} ({count} reports)")
+                    
+                    # Try to get side effects from label info
+                    if 'label_info' in fda_data and fda_data['label_info'].get('success'):
+                        label_data = fda_data['label_info']
+                        if 'results' in label_data and label_data['results']:
+                            # Look for adverse reactions in label data
+                            for result in label_data['results']:
+                                if 'openfda' in result and 'adverse_reactions' in result:
+                                    adverse_reactions = result['openfda']['adverse_reactions']
+                                    if isinstance(adverse_reactions, list):
+                                        side_effects.extend(adverse_reactions[:5])  # Limit to 5
+                                    elif isinstance(adverse_reactions, str):
+                                        side_effects.append(adverse_reactions)
+                    
+                    # Add side effects to response data
+                    if side_effects:
+                        response_data['side_effects'] = side_effects
+                        logger.debug(f"Extracted side effects: {side_effects}")
+                    
+                    # --- Context-specific extraction ---
+                    context_sections = {
+                        'pregnancy': ['pregnancy', 'pregnancy_category', 'use_in_specific_populations'],
+                        'breastfeeding': ['nursing_mothers', 'lactation'],
+                        'children': ['pediatric_use'],
+                        'elderly': ['geriatric_use'],
+                        'kidney': ['renal_impairment'],
+                        'liver': ['hepatic_impairment'],
+                    }
+                    context_info = {}
+                    logger.debug(f"Checking for contexts: {plan_contexts}")
+                    if plan_contexts and 'label_info' in fda_data and fda_data['label_info'].get('results'):
+                        logger.debug(f"Label info results: {fda_data['label_info']['results']}")
+                        for context in plan_contexts:
+                            logger.debug(f"Looking for context: {context}")
+                            for section in context_sections.get(context, []):
+                                logger.debug(f"Checking section: {section}")
+                                for result in fda_data['label_info']['results']:
+                                    logger.debug(f"Result keys: {list(result.keys())}")
+                                    if section in result:
+                                        logger.debug(f"Found section {section}: {result[section]}")
+                                        if context not in context_info:
+                                            context_info[context] = []
+                                        context_info[context].append(result[section])
+                    if context_info:
+                        response_data['context_info'] = context_info
+                        logger.debug(f"Extracted context-specific info: {context_info}")
+                    else:
+                        logger.debug("No context-specific info found in FDA data")
+                    
+                    # If context was detected but no context-specific info found, use Gemini fallback
+                    if plan_contexts and not context_info:
+                        logger.info(f"No context-specific info found in FDA data for {primary_drug}, using Gemini fallback")
+                        if self.api_manager.gemini_client:
+                            context_str = ', '.join(plan_contexts)
+                            context_prompt = f"""
+                            Answer this specific question: Is {primary_drug} safe for {context_str}?
+                            
+                            Provide a direct, focused answer that:
+                            1. Directly answers whether {primary_drug} is safe for {context_str}
+                            2. Explains the specific risks or safety considerations
+                            3. References FDA guidelines or medical evidence
+                            4. Gives clear recommendations
+                            
+                            Keep the answer concise (2-3 sentences) and focused specifically on {context_str} safety.
+                            Do NOT provide general drug information - only answer the {context_str} safety question.
+                            """
+                            
+                            try:
+                                context_result = await self.api_manager.gemini_client.generate_response(context_prompt)
+                                if context_result.text:
+                                    response_data['context_fallback_info'] = {
+                                        'context': plan_contexts,
+                                        'answer': context_result.text
+                                    }
+                                    logger.debug(f"Generated context fallback info: {context_result.text}")
+                            except Exception as e:
+                                logger.warning(f"Gemini context fallback failed: {e}")
+                    
                     return response_data
                 
             except Exception as fda_error:
                 logger.warning(f"OpenFDA API failed for {primary_drug}: {fda_error}")
             
-            # Fallback to Gemini AI if FDA API fails
+            # Fallback to Gemini AI if FDA API fails or no context info found
             if self.api_manager.gemini_client:
                 logger.info(f"Using Gemini fallback for drug information: {primary_drug}")
-                
-                drug_prompt = f"""
-                Provide comprehensive drug information for: {primary_drug}
-                
-                Please include:
-                1. **What it's used for**: Primary medical conditions treated
-                2. **How it works**: Basic mechanism of action in simple terms
-                3. **Common side effects**: Most frequently reported side effects
-                4. **Important warnings**: Critical safety information and contraindications
-                5. **When to contact a doctor**: Situations requiring immediate medical attention
-                6. **Drug interactions**: Common medications that may interact
-                
-                Keep the information factual, helpful, and under 300 words.
-                Always emphasize consulting healthcare professionals and pharmacists.
-                Include appropriate medical disclaimers.
-                """
-                
+                # If context, ask Gemini specifically
+                if plan_contexts:
+                    context_str = ', '.join(plan_contexts)
+                    drug_prompt = f"Is {primary_drug} safe for {context_str}? Please provide a concise, evidence-based answer, referencing FDA and medical guidelines."
+                else:
+                    drug_prompt = f"Provide comprehensive drug information for: {primary_drug}\n\nPlease include: ..."
                 gemini_result = await self.api_manager.gemini_client.generate_response(drug_prompt)
-                
                 if gemini_result.text:
                     return {
                         'drug_name': primary_drug,
@@ -786,18 +914,102 @@ class ToolExecutor:
             if result.tool_name == 'search_medical_term':
                 term = result.data.get('term', '')
                 definition = result.data.get('definition', '')
-                response_parts.append(f"**{term}**: {definition}")
+                technical_definition = result.data.get('technical_definition', '')
+                icd_code = result.data.get('icd_code', '')
+                
+                # Format comprehensive medical term explanation
+                term_response = f"## {term.title()}\n\n"
+                
+                if definition and definition != f"Medical information about {term}":
+                    term_response += f"{definition}\n\n"
+                elif technical_definition:
+                    term_response += f"{technical_definition}\n\n"
+                else:
+                    term_response += f"Medical information about {term} is being processed.\n\n"
+                
+                if icd_code:
+                    term_response += f"**ICD-11 Code**: {icd_code}\n\n"
+                
+                response_parts.append(term_response.strip())
                 sources.append(result.data.get('source', 'WHO_ICD'))
                 
             elif result.tool_name == 'get_drug_information':
                 drug_name = result.data.get('drug_name', '')
                 safety_data = result.data.get('safety_data', {})
+                
+                # Add context-specific information FIRST if available
+                context_info = result.data.get('context_info', {})
+                context_fallback_info = result.data.get('context_fallback_info', {})
+                
+                if context_info:
+                    response_parts.append(f"**{drug_name.title()} Safety Information:**")
+                    for context_name, info_list in context_info.items():
+                        context_display_name = {
+                            'pregnancy': 'Pregnancy Safety',
+                            'breastfeeding': 'Breastfeeding Safety', 
+                            'children': 'Pediatric Safety',
+                            'elderly': 'Geriatric Safety',
+                            'kidney': 'Kidney Disease Safety',
+                            'liver': 'Liver Disease Safety'
+                        }.get(context_name, context_name.title())
+                        
+                        response_parts.append(f"**{context_display_name}:**")
+                        for info in info_list:
+                            if isinstance(info, str) and info.strip():
+                                response_parts.append(f"• {info.strip()}")
+                        response_parts.append("")  # Add spacing
+                
+                elif context_fallback_info:
+                    # Display Gemini fallback context information prominently
+                    context_str = ', '.join(context_fallback_info['context'])
+                    context_display_name = {
+                        'pregnancy': 'Pregnancy Safety',
+                        'breastfeeding': 'Breastfeeding Safety', 
+                        'children': 'Pediatric Safety',
+                        'elderly': 'Geriatric Safety',
+                        'kidney': 'Kidney Disease Safety',
+                        'liver': 'Liver Disease Safety'
+                    }.get(context_fallback_info['context'][0], context_fallback_info['context'][0].title())
+                    
+                    response_parts.append(f"**{drug_name.title()} - {context_display_name}:**")
+                    response_parts.append(f"{context_fallback_info['answer']}")
+                    response_parts.append("")  # Add spacing
+                    response_parts.append("**Additional Drug Information:**")  # Separate general info
+                
+                # Then add general drug information
                 response_parts.append(f"**Drug Information for {drug_name}**: Safety data retrieved from FDA")
                 sources.append('OpenFDA')
                 
                 # Add allergy warning if present
                 if result.data.get('allergy_warning'):
                     response_parts.append(f"⚠️ {result.data['allergy_warning']}")
+                
+                # Add common side effects/adverse reactions if available
+                # Use the 'side_effects' field which should now contain the top_reactions
+                side_effects = result.data.get('side_effects', [])
+                
+                if side_effects:
+                    if isinstance(side_effects, list) and side_effects:
+                        response_parts.append("**Common Side Effects (Adverse Reactions):**\n- " + "\n- ".join(str(r) for r in side_effects))
+                    elif isinstance(side_effects, str):
+                        response_parts.append(f"**Common Side Effects (Adverse Reactions):** {side_effects}")
+                else:
+                    # If no side effects found in FDA data, add a note
+                    response_parts.append("**Side Effects**: No specific side effects data available from FDA. Please consult your healthcare provider or pharmacist for complete information.")
+                
+                # Add context-specific information if available
+                context_info = result.data.get('context_info', {})
+                if context_info:
+                    response_parts.append("\n**Context-Specific Information:**")
+                    for context_name, info_list in context_info.items():
+                        response_parts.append(f"- **{context_name.title()}**: {', '.join(info_list)}")
+                
+                # Add context-specific information if available from fallback
+                context_fallback_info = result.data.get('context_fallback_info', {})
+                if context_fallback_info:
+                    response_parts.append("\n**Context-Specific Information (Fallback):**")
+                    response_parts.append(f"- **Context**: {', '.join(context_fallback_info['context'])}")
+                    response_parts.append(f"- **Answer**: {context_fallback_info['answer']}")
                 
             elif result.tool_name == 'analyze_symptoms':
                 analysis = result.data.get('analysis', '')
@@ -827,12 +1039,9 @@ class ToolExecutor:
         # Combine response text
         response_text = '\n\n'.join(response_parts)
         
-        # Add medical disclaimers
-        response_text += '\n\n' + format_medical_disclaimer()
-        
-        # Add any plan-specific disclaimers
-        for disclaimer in plan.medical_disclaimers:
-            response_text += f'\n\n⚠️ {disclaimer}'
+        # Add single medical disclaimer (avoid duplicates)
+        if response_text and not any(disclaimer_text in response_text for disclaimer_text in ['MEDICAL DISCLAIMER', 'educational purposes only']):
+            response_text += '\n\n' + format_medical_disclaimer().strip()
         
         return MedicalResponse(
             query_id=plan.query_id,

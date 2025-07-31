@@ -25,25 +25,154 @@ st.set_page_config(
     page_title="Healthcare Navigator",
     page_icon="🏥",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
+    menu_items={
+        'Get Help': 'https://github.com/ajitpal/creative-coder-agentic-hackathon',
+        'Report a bug': 'https://github.com/ajitpal/creative-coder-agentic-hackathon/issues',
+        'About': 'Intelligent Healthcare Navigator - Your AI-powered healthcare assistant'
+    }
 )
 
+# Set theme to light mode
+st.markdown('''
+<script>
+    if (window.parent.document.querySelector('section.main')) {
+        window.parent.document.querySelector('section.main').style.backgroundColor = '#f8f9fa';
+    }
+    // Force light theme
+    const elements = window.parent.document.querySelectorAll('.stAppToolbar, .stAppToolbar *, .stToolbar, .stToolbar *');
+    elements.forEach(el => {
+        el.style.backgroundColor = '#f8f9fa';
+        el.style.color = '#1a1a1a';
+    });
+</script>
+''', unsafe_allow_html=True)
+
 # Custom CSS for improved readability
-st.markdown("""
+st.markdown("""<!-- Force light mode for Streamlit -->
+<script>
+    // Force light mode by overriding the theme
+    localStorage.setItem('theme', 'light');
+    // Reload to apply the theme change
+    if (document.readyState === 'complete') {
+        // Only reload if the page is already loaded
+        if (localStorage.getItem('streamlit:themeChanged') !== 'true') {
+            localStorage.setItem('streamlit:themeChanged', 'true');
+            setTimeout(function() {
+                window.location.reload();
+            }, 100);
+        }
+    }
+    
+    // Add event listener to override toolbar styling after DOM is fully loaded
+    document.addEventListener('DOMContentLoaded', function() {
+        // Function to apply styles to toolbar
+        function styleToolbar() {
+            var toolbar = document.querySelector('.stAppToolbar');
+            if (toolbar) {
+                toolbar.style.backgroundColor = '#f8f9fa';
+                toolbar.style.color = '#1a1a1a';
+                
+                // Style all children
+                var allElements = toolbar.querySelectorAll('*');
+                allElements.forEach(function(el) {
+                    el.style.backgroundColor = '#f8f9fa';
+                    el.style.color = '#1a1a1a';
+                });
+            }
+        }
+        
+        // Initial styling
+        styleToolbar();
+        
+        // Set up a MutationObserver to watch for DOM changes
+        var observer = new MutationObserver(styleToolbar);
+        observer.observe(document.body, { childList: true, subtree: true });
+    });
+</script>
 <style>
+    /* Force light theme */
+    :root {
+        --background-color: #f8f9fa !important;
+        --secondary-background-color: #f8f9fa !important;
+        --color-scheme: light !important;
+    }
+    
     /* Main theme improvements */
     .stApp {
-        background-color: #f8f9fa;
+        background-color: #f8f9fa !important;
+        color-scheme: light !important;
+    }
+    
+    /* Fix Streamlit toolbar */
+    div[data-testid="stToolbar"], 
+    div[data-testid="stToolbar"] div, 
+    div[data-testid="stToolbar"] span, 
+    div[data-testid="stToolbar"] button,
+    .stAppToolbar, 
+    .stAppToolbar div, 
+    .stAppToolbar span, 
+    .stAppToolbar button {
+        background-color: #f8f9fa !important;
+        color: #1a1a1a !important;
+    }
+    
+    /* Fix toolbar button colors */
+    div[data-testid="stToolbar"] button svg,
+    .stAppToolbar button svg {
+        fill: #1a1a1a !important;
+    }
+    
+    /* Fix specific toolbar elements */
+    .st-emotion-cache-14vh5up,
+    .st-emotion-cache-1j22a0y,
+    .st-emotion-cache-70qvj9,
+    .st-emotion-cache-scp8yw,
+    .st-emotion-cache-1p1m4ay,
+    .st-emotion-cache-1gwi02i,
+    .st-emotion-cache-1wbqy5l,
+    .st-emotion-cache-czk5ss,
+    .st-emotion-cache-cqw0tj,
+    .st-emotion-cache-1pbsqtx {
+        background-color: #f8f9fa !important;
+        color: #1a1a1a !important;
+    }
+    
+    /* Override any inline styles */
+    [style*="background-color: rgb(14, 17, 23)"],
+    [style*="background-color: #0e1117"],
+    [style*="background-color:rgb(14,17,23)"],
+    [style*="background-color:#0e1117"] {
+        background-color: #f8f9fa !important;
+        color: #1a1a1a !important;
+    }
+    
+    /* Target the exact toolbar class */
+    .st-emotion-cache-14vh5up {
+        background-color: #f8f9fa !important;
+        border-bottom: 1px solid #e0e0e0 !important;
+    }
+    
+    /* Target all elements in the toolbar */
+    .st-emotion-cache-14vh5up * {
+        background-color: #f8f9fa !important;
+        color: #1a1a1a !important;
+    }
+    
+    /* Target the deploy button */
+    .stAppDeployButton button {
+        background-color: #2196f3 !important;
+        color: white !important;
     }
     
     /* Fix text visibility issues */
     .stApp, .stApp * {
-        color: #1a1a1a !important;
+        color: #000000 !important;
     }
     
     /* Ensure all text elements are visible */
     h1, h2, h3, h4, h5, h6, p, span, div, label {
-        color: #1a1a1a !important;
+        color: #000000 !important;
     }
     
     /* Streamlit specific text fixes */
@@ -199,16 +328,18 @@ st.markdown("""
     /* Header styling - Make it highly visible */
     .main-header {
         font-size: 3rem;
-        color: #1a1a1a !important;
+        color: white !important;
         text-align: center;
         margin: 2rem 0;
         font-weight: 700;
         text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
-        background: linear-gradient(135deg, #ffffff 0%, #f0f0f0 100%);
+        background: linear-gradient(135deg, #2196f3 0%, #1976d2 100%);
         padding: 1.5rem;
         border-radius: 12px;
         border: 3px solid #1976d2;
         box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+        letter-spacing: 0.5px;
+        text-transform: none;
     }
     
     /* Chat message improvements */
@@ -224,13 +355,13 @@ st.markdown("""
     .user-message {
         background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
         border-left: 5px solid #1976d2;
-        color: #1565c0;
+        color: #000000 !important;
     }
     
     .assistant-message {
-        background: linear-gradient(135deg, #f3e5f5 0%, #e1bee7 100%);
-        border-left: 5px solid #7b1fa2;
-        color: #4a148c;
+        background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+        border-left: 5px solid #4caf50;
+        color: #000000 !important;
     }
     
     /* Info boxes with better contrast */
@@ -249,6 +380,16 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(0,0,0,0.15);
     }
     
+    .info-card h3 {
+        color: #1976d2 !important;
+        margin-bottom: 0.5rem;
+    }
+    
+    .info-card p {
+        color: #333333 !important;
+        margin: 0;
+    }
+    
     /* Warning and success boxes */
     .warning-box {
         background: linear-gradient(135deg, #fff8e1 0%, #ffecb3 100%);
@@ -256,8 +397,12 @@ st.markdown("""
         border-radius: 8px;
         padding: 1.2rem;
         margin: 1rem 0;
-        color: #e65100;
+        color: #e65100 !important;
         font-weight: 500;
+    }
+    
+    .warning-box strong {
+        color: #e65100 !important;
     }
     
     .success-box {
@@ -284,6 +429,28 @@ st.markdown("""
     .css-1d391kg, .css-1lcbmhc, .css-17eq0hr, section[data-testid="stSidebar"] {
         background-color: #ffffff !important;
         border-right: 2px solid #e0e0e0 !important;
+        box-shadow: 2px 0px 10px rgba(0,0,0,0.08) !important;
+        padding: 1rem 0.5rem !important;
+    }
+    
+    /* Make sidebar elements more responsive */
+    [data-testid="stSidebar"] .stButton > button {
+        width: 100% !important;
+        margin: 0.5rem 0 !important;
+    }
+    
+    [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, 
+    [data-testid="stSidebar"] h3, [data-testid="stSidebar"] h4 {
+        color: #1976d2 !important;
+        margin-bottom: 1rem !important;
+        padding-bottom: 0.5rem !important;
+        border-bottom: 1px solid #e0e0e0;
+    }
+    
+    [data-testid="stSidebar"] .stTextInput > div > div > input,
+    [data-testid="stSidebar"] .stNumberInput > div > div > input,
+    [data-testid="stSidebar"] .stTextArea > div > div > textarea {
+        width: 100% !important;
     }
     
     /* Sidebar specific text styling - comprehensive selectors */
@@ -353,20 +520,28 @@ st.markdown("""
     
     /* Button styling */
     .stButton > button {
-        background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%);
-        color: white;
+        background: linear-gradient(135deg, #2196f3 0%, #1976d2 100%);
+        color: white !important;
         border: none;
         border-radius: 8px;
         padding: 0.6rem 1.2rem;
         font-weight: 500;
         transition: all 0.3s ease;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        text-transform: none;
+        letter-spacing: 0.5px;
+        margin: 0.3rem 0;
+        height: auto !important;
+        line-height: 1.5 !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
     }
     
     .stButton > button:hover {
-        background: linear-gradient(135deg, #1565c0 0%, #0d47a1 100%);
-        transform: translateY(-1px);
-        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        background: linear-gradient(135deg, #42a5f5 0%, #1976d2 100%);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 10px rgba(0,0,0,0.2);
     }
     
     /* Input field improvements */
@@ -376,12 +551,27 @@ st.markdown("""
         border-radius: 8px;
         padding: 0.8rem;
         font-size: 1rem;
-        transition: border-color 0.3s ease;
+        transition: all 0.3s ease;
+        color: #000000;
+        width: 100% !important;
     }
     
     .stTextInput > div > div > input:focus {
         border-color: #1976d2;
-        box-shadow: 0 0 0 3px rgba(25, 118, 210, 0.1);
+        box-shadow: 0 0 0 3px rgba(25, 118, 210, 0.2);
+        transform: translateY(-1px);
+    }
+    
+    /* Make text input container responsive */
+    .stTextInput, .stTextArea {
+        width: 100% !important;
+    }
+    
+    /* Improve placeholder text */
+    .stTextInput > div > div > input::placeholder,
+    .stTextArea > div > div > textarea::placeholder {
+        color: #9e9e9e !important;
+        opacity: 0.8 !important;
     }
     
     /* Expander styling */
@@ -394,6 +584,9 @@ st.markdown("""
     /* Tab styling */
     .stTabs [data-baseweb="tab-list"] {
         gap: 8px;
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
     }
     
     .stTabs [data-baseweb="tab"] {
@@ -401,13 +594,26 @@ st.markdown("""
         border-radius: 8px;
         padding: 0.8rem 1.2rem;
         border: 2px solid #e0e0e0;
-        font-weight: 500;
+        font-weight: 600;
+        color: #333333 !important;
+        transition: all 0.3s ease;
+        flex-grow: 1;
+        text-align: center;
+        min-width: 120px;
     }
     
     .stTabs [aria-selected="true"] {
         background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%);
-        color: white;
+        color: white !important;
         border-color: #1976d2;
+        box-shadow: 0 2px 8px rgba(25, 118, 210, 0.3);
+        transform: translateY(-2px);
+    }
+    
+    .stTabs [data-baseweb="tab"]:hover:not([aria-selected="true"]) {
+        background-color: #e3f2fd;
+        color: #1976d2 !important;
+        transform: translateY(-1px);
     }
     
     /* Metric styling */
@@ -438,34 +644,37 @@ st.markdown("""
     .urgency-high {
         background: linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%);
         border: 2px solid #f44336;
-        color: #c62828;
+        color: #c62828 !important;
         padding: 0.8rem;
         border-radius: 8px;
-        font-weight: 600;
+        font-weight: 700;
         text-align: center;
         margin: 1rem 0;
+        box-shadow: 0 2px 8px rgba(244, 67, 54, 0.2);
     }
     
     .urgency-moderate {
         background: linear-gradient(135deg, #fff8e1 0%, #ffecb3 100%);
         border: 2px solid #ff8f00;
-        color: #e65100;
+        color: #e65100 !important;
         padding: 0.8rem;
         border-radius: 8px;
-        font-weight: 600;
+        font-weight: 700;
         text-align: center;
         margin: 1rem 0;
+        box-shadow: 0 2px 8px rgba(255, 143, 0, 0.2);
     }
     
     .urgency-low {
         background: linear-gradient(135deg, #e8f5e8 0%, #c8e6c9 100%);
         border: 2px solid #4caf50;
-        color: #2e7d32;
+        color: #2e7d32 !important;
         padding: 0.8rem;
         border-radius: 8px;
-        font-weight: 600;
+        font-weight: 700;
         text-align: center;
         margin: 1rem 0;
+        box-shadow: 0 2px 8px rgba(76, 175, 80, 0.2);
     }
     
     /* Footer styling */
@@ -476,6 +685,17 @@ st.markdown("""
         text-align: center;
         margin-top: 2rem;
         border: 1px solid #e0e0e0;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    }
+    
+    .footer h4 {
+        color: #1976d2 !important;
+        margin-bottom: 1rem;
+    }
+    
+    .footer p {
+        color: #333333 !important;
+        margin-bottom: 0.5rem;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -588,6 +808,49 @@ class HealthcareWebApp:
         
         return text
     
+    async def enhance_response_with_gemini(self, response_text: str, query: str) -> str:
+        """Enhance the response with Gemini to make it more user-friendly"""
+        if not await self.initialize_agent():
+            return response_text
+        
+        try:
+            # Only proceed if we have a Gemini client
+            if not st.session_state.agent.gemini_client:
+                return response_text
+            
+            enhancement_prompt = f"""
+            Original user query: {query}
+            
+            Original response: {response_text}
+            
+            Please enhance this medical information to make it more user-friendly and easier to understand:
+            1. Use simpler language while preserving all medical information
+            2. Add brief explanations for medical terms in parentheses
+            3. Organize information with clear headings and bullet points
+            4. Add context about why this information matters to patients
+            5. Keep all medical disclaimers intact
+            6. Maintain all factual information from the original response
+            7. Return ONLY the enhanced response, not your reasoning
+            """
+            
+            # Generate enhanced response
+            enhanced_response = await st.session_state.agent.gemini_client.generate_response(
+                enhancement_prompt,
+                use_functions=False,
+                max_tokens=1500
+            )
+            
+            # If enhancement failed, return original
+            if not enhanced_response or not enhanced_response.text:
+                return response_text
+                
+            return enhanced_response.text
+            
+        except Exception as e:
+            # Log error but don't fail - return original response
+            logger.error(f"Response enhancement failed: {e}")
+            return response_text
+
     def initialize_session_state(self):
         """Initialize Streamlit session state"""
         if 'agent' not in st.session_state:
@@ -622,7 +885,6 @@ class HealthcareWebApp:
     def render_header(self):
         """Render application header"""
         st.markdown('<h1 class="main-header">🏥 Intelligent Healthcare Navigator</h1>', unsafe_allow_html=True)
-        st.markdown("---")
         
         # Quick info cards with improved styling
         col1, col2, col3 = st.columns(3)
@@ -708,14 +970,25 @@ class HealthcareWebApp:
             # Quick actions
             st.header("⚡ Quick Actions")
             
+            # Create a responsive grid for quick actions
             col1, col2 = st.columns(2)
             with col1:
-                if st.button("🩺 Common Conditions"):
-                    st.session_state.quick_query = "Tell me about common medical conditions"
+                if st.button("🩺 Common Conditions", use_container_width=True, key="quick_conditions"):
+                    asyncio.run(self.process_text_query("Tell me about common medical conditions"))
             
             with col2:
-                if st.button("💊 Drug Safety"):
-                    st.session_state.quick_query = "How can I check if a medication is safe?"
+                if st.button("💊 Drug Safety", use_container_width=True, key="quick_drug_safety"):
+                    asyncio.run(self.process_text_query("How can I check if a medication is safe?"))
+                    
+            # Add more quick actions in a second row
+            col3, col4 = st.columns(2)
+            with col3:
+                if st.button("🚑 Emergency Signs", use_container_width=True, key="quick_emergency"):
+                    asyncio.run(self.process_text_query("What are signs of a medical emergency?"))
+            
+            with col4:
+                if st.button("🧠 Mental Health", use_container_width=True, key="quick_mental_health"):
+                    asyncio.run(self.process_text_query("How to maintain good mental health?"))
     
     def render_chat_interface(self):
         """Render main chat interface"""
@@ -838,9 +1111,12 @@ class HealthcareWebApp:
             "Is ibuprofen safe during pregnancy?"
         ]
         
-        for example in examples:
-            if st.button(f"📝 {example}", key=f"example_{hash(example)}"):
-                asyncio.run(self.process_text_query(example))
+        # Create a responsive grid for example queries
+        cols = st.columns(2)
+        for i, example in enumerate(examples):
+            with cols[i % 2]:
+                if st.button(f"📝 {example}", key=f"example_{hash(example)}", use_container_width=True):
+                    asyncio.run(self.process_text_query(example))
     
     def render_document_upload_interface(self):
         """Render document upload interface"""
@@ -901,13 +1177,17 @@ class HealthcareWebApp:
                 
                 response = await st.session_state.agent.process_query(query, context)
                 
+                # Enhance the response with Gemini to make it more user-friendly
+                enhanced_text = await self.enhance_response_with_gemini(response.response.response_text, query)
+                
                 # Add assistant response to chat
-                self.add_chat_message("assistant", response.response.response_text, {
+                self.add_chat_message("assistant", enhanced_text, {
                     'sources': response.response.sources,
                     'confidence_score': response.response.confidence_score,
                     'processing_time': response.processing_time,
                     'disclaimers': response.response.disclaimers,
-                    'urgency_level': response.response.metadata.get('urgency_level') if response.response.metadata else None
+                    'urgency_level': response.response.metadata.get('urgency_level') if response.response.metadata else None,
+                    'medical_entities': response.response.metadata.get('medical_entities') if response.response.metadata else None
                 })
                 
                 st.rerun()
@@ -925,27 +1205,34 @@ class HealthcareWebApp:
         self.add_chat_message("user", f"📄 Uploaded document: {uploaded_file.name}")
         
         # Show processing indicator
-        with st.spinner("📄 Processing document..."):
+        with st.spinner("📄 Analyzing document..."):
             try:
                 file_data = uploaded_file.read()
                 
+                # Process document with agent
                 response = await st.session_state.agent.handle_document_upload(
                     file_data, uploaded_file.name, len(file_data)
                 )
                 
+                # Enhance the response with Gemini to make it more user-friendly
+                enhanced_text = await self.enhance_response_with_gemini(response.response.response_text, "Analyze this medical document")
+                
                 # Add assistant response to chat
-                self.add_chat_message("assistant", response.response.response_text, {
+                self.add_chat_message("assistant", enhanced_text, {
                     'sources': response.response.sources,
                     'confidence_score': response.response.confidence_score,
                     'processing_time': response.processing_time,
-                    'disclaimers': response.response.disclaimers
+                    'disclaimers': response.response.disclaimers,
+                    'document_name': uploaded_file.name,
+                    'urgency_level': response.response.metadata.get('urgency_level') if response.response.metadata else None,
+                    'medical_entities': response.response.metadata.get('medical_entities') if response.response.metadata else None
                 })
                 
                 st.rerun()
                 
             except Exception as e:
                 st.error(f"❌ Document processing failed: {e}")
-                logger.error(f"Web document processing error: {e}")
+                logger.error(f"Document processing error: {e}")
     
     async def check_system_status(self):
         """Check system status"""
@@ -960,6 +1247,17 @@ class HealthcareWebApp:
                 
         except Exception as e:
             st.error(f"❌ Status check failed: {e}")
+            logger.error(f"System status check failed: {e}")
+            # Set a basic error status so UI shows something
+            st.session_state.system_status = {
+                'system_healthy': False,
+                'error_message': str(e),
+                'component_status': {
+                    'api_manager': False,
+                    'conversation_memory': True,
+                    'cache_manager': True
+                }
+            }
     
     def add_chat_message(self, message_type: str, content: str, metadata: Dict[str, Any] = None):
         """Add message to chat history"""

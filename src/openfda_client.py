@@ -76,18 +76,15 @@ class OpenFDAClient:
         try:
             logger.info(f"Getting drug recalls for: {drug_name}")
             
-            # Calculate date range for recent recalls
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=date_range_days)
-            date_filter = f"[{start_date.strftime('%Y%m%d')}+TO+{end_date.strftime('%Y%m%d')}]"
-            
-            # Prepare search parameters
+            # Use simpler search pattern - just search for the drug name in product description
+            # OpenFDA API works better with simple searches
             params = {
-                'search': f'product_description:"{drug_name}" AND recall_initiation_date:{date_filter}',
+                'search': f'product_description:"{drug_name}"',
                 'limit': min(limit, 100),  # FDA max is 100
                 'sort': 'recall_initiation_date:desc'
             }
             
+            logger.debug(f"OpenFDA recall search params: {params}")
             response = await self._rate_limited_request(self.drug_recall_endpoint, params)
             
             if response.status_code == 200:
@@ -114,6 +111,7 @@ class OpenFDAClient:
             
             else:
                 logger.error(f"OpenFDA recall API error: {response.status_code}")
+                logger.debug(f"Response content: {response.text[:500]}")
                 return {
                     'drug_name': drug_name,
                     'success': False,
@@ -243,18 +241,19 @@ class OpenFDAClient:
         try:
             logger.info(f"Getting adverse events for: {drug_name}")
             
-            # Calculate date range
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=date_range_days)
-            date_filter = f"[{start_date.strftime('%Y%m%d')}+TO+{end_date.strftime('%Y%m%d')}]"
+            # Use simpler search pattern - just search for the drug name in medicinal product
+            # OpenFDA API works better with simple searches
+            # Broaden search to include multiple fields for better coverage
+            # Using a more flexible search query with OR conditions
+            search_query = f'patient.drug.medicinalproduct:"{drug_name}" OR patient.drug.openfda.substance_name:"{drug_name}" OR patient.drug.drugcharacterization:"{drug_name}"'
             
-            # Prepare search parameters
             params = {
-                'search': f'patient.drug.medicinalproduct:"{drug_name}" AND receiptdate:{date_filter}',
-                'limit': min(limit, 100),
+                'search': search_query,
+                'limit': min(limit, 1000),  # Increase limit to retrieve more results, FDA max is 1000
                 'sort': 'receiptdate:desc'
             }
             
+            logger.debug(f"OpenFDA adverse events search params: {params}")
             response = await self._rate_limited_request(self.drug_event_endpoint, params)
             
             if response.status_code == 200:
@@ -280,6 +279,7 @@ class OpenFDAClient:
             
             else:
                 logger.error(f"OpenFDA adverse events API error: {response.status_code}")
+                logger.debug(f"Response content: {response.text[:500]}")
                 return {
                     'drug_name': drug_name,
                     'success': False,
@@ -302,27 +302,33 @@ class OpenFDAClient:
             adverse_events = []
             all_reactions = []
             
+            # Dictionary to store reaction frequencies
+            reaction_frequencies = {}
+            
             for event in results:
-                patient = event.get('patient', {})
-                
-                # Extract reactions
-                reactions = []
-                if 'reaction' in patient:
-                    for reaction in patient['reaction']:
-                        reaction_term = reaction.get('reactionmeddrapt', '')
-                        if reaction_term:
-                            reactions.append(reaction_term)
-                            all_reactions.append(reaction_term.lower())
+                    patient = event.get('patient', {})
+                    
+                    # Extract reactions
+                    reactions = []
+                    if 'reaction' in patient:
+                        for reaction in patient['reaction']:
+                            reaction_term = reaction.get('reactionmeddrapt', '')
+                            if reaction_term:
+                                reactions.append(reaction_term)
+                                all_reactions.append(reaction_term.lower())
+                                # Update reaction frequencies
+                                reaction_frequencies[reaction_term] = reaction_frequencies.get(reaction_term, 0) + 1
                 
                 # Extract patient demographics
-                patient_age = patient.get('patientonsetage', '')
-                patient_sex = patient.get('patientsex', '')
+                    patient_age = patient.get('patientonsetage', '')
+                    patient_sex = patient.get('patientsex', '')
                 
                 # Map sex codes
-                sex_mapping = {'1': 'Male', '2': 'Female', '0': 'Unknown'}
-                patient_sex_text = sex_mapping.get(patient_sex, 'Unknown')
+                    sex_mapping = {'1': 'Male', '2': 'Female', '0': 'Unknown'}
+                    patient_sex_text = sex_mapping.get(patient_sex, 'Unknown')
                 
-                processed_event = {
+                    # Process event
+                    processed_event = {
                     'reactions': reactions,
                     'serious': event.get('serious', ''),
                     'patient_age': patient_age,
@@ -332,22 +338,33 @@ class OpenFDAClient:
                     'reporter_qualification': event.get('primarysourcecountry', ''),
                     'event_id': event.get('safetyreportid', ''),
                     'severity_assessment': self._assess_event_severity(event)
-                }
+                    }
                 
-                adverse_events.append(processed_event)
+                    adverse_events.append(processed_event)
             
-            # Generate summary
-            summary = self._generate_adverse_event_summary(adverse_events, all_reactions)
-            
-            return {
-                'drug_name': drug_name,
-                'success': True,
-                'total_events': len(adverse_events),
-                'adverse_events': adverse_events,
-                'summary': summary,
-                'data_source': 'FDA Adverse Event Reporting System (FAERS)',
-                'last_updated': datetime.now().isoformat()
-            }
+                    # Generate summary
+                    summary = self._generate_adverse_event_summary(adverse_events, all_reactions)
+                    
+                    # Sort reactions by frequency and get top N
+                    sorted_reactions = sorted(reaction_frequencies.items(), key=lambda item: item[1], reverse=True)
+                    top_reactions = sorted_reactions[:10]  # Get top 10 most frequent reactions
+                    
+                    # Format top reactions for display
+                    formatted_top_reactions = [
+                        f"{reaction.replace('_', ' ').title()} ({count} reports)"
+                        for reaction, count in top_reactions
+                    ]
+                    
+                    return {
+                        'drug_name': drug_name,
+                        'success': True,
+                        'total_events': len(adverse_events),
+                        'adverse_events': adverse_events,
+                        'summary': summary,
+                        'data_source': 'FDA Adverse Event Reporting System (FAERS)',
+                        'last_updated': datetime.now().isoformat(),
+                        'top_reactions': formatted_top_reactions if formatted_top_reactions else ['No specific side effects data available from FDA. Please consult your healthcare provider or pharmacist for complete information.']
+                    }
             
         except Exception as e:
             logger.error(f"Error processing adverse event results: {e}")
@@ -437,11 +454,14 @@ class OpenFDAClient:
         try:
             logger.info(f"Getting drug label info for: {drug_name}")
             
+            # Use simpler search pattern - just search for the drug name in brand name
+            # OpenFDA API works better with simple searches
             params = {
-                'search': f'openfda.brand_name:"{drug_name}" OR openfda.generic_name:"{drug_name}"',
+                'search': f'openfda.brand_name:"{drug_name}"',
                 'limit': 5
             }
             
+            logger.debug(f"OpenFDA label search params: {params}")
             response = await self._rate_limited_request(self.drug_label_endpoint, params)
             
             if response.status_code == 200:
@@ -457,6 +477,8 @@ class OpenFDAClient:
                 }
             
             else:
+                logger.error(f"OpenFDA label API error: {response.status_code}")
+                logger.debug(f"Response content: {response.text[:500]}")
                 return {
                     'drug_name': drug_name,
                     'success': False,
@@ -602,21 +624,29 @@ class OpenFDAClient:
         return assessment
     
     def test_connection(self) -> bool:
-        """Test connection to OpenFDA API"""
+        """Test basic connection to OpenFDA API"""
         try:
-            # Test with a simple search
-            params = {'search': 'patient.drug.medicinalproduct:"aspirin"', 'limit': 1}
+            # Test with a simple query to the drug label endpoint
+            test_params = {
+                'search': 'openfda.brand_name:"aspirin"',
+                'limit': 1
+            }
+            
             if self.api_key:
-                params['api_key'] = self.api_key
+                test_params['api_key'] = self.api_key
             
-            response = self.session.get(self.drug_event_endpoint, params=params, timeout=5)
+            response = self.session.get(self.drug_label_endpoint, params=test_params, timeout=10)
             
-            success = response.status_code in [200, 404]  # 404 is OK, means no results
-            logger.info(f"OpenFDA API connection test: {'PASSED' if success else 'FAILED'}")
-            return success
-            
+            if response.status_code == 200:
+                logger.info("OpenFDA API connection test: PASSED")
+                return True
+            else:
+                logger.error(f"OpenFDA API connection test failed: {response.status_code}")
+                logger.debug(f"Test response: {response.text[:500]}")
+                return False
+                
         except Exception as e:
-            logger.error(f"OpenFDA API connection test failed: {e}")
+            logger.error(f"OpenFDA API connection test error: {e}")
             return False
     
     def get_client_info(self) -> Dict[str, Any]:

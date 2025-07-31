@@ -98,7 +98,7 @@ class HealthcareNavigatorAgent:
             medical_response = await self.executor.execute_plan(plan, full_context)
             
             # OBSERVATION PHASE: Store results and learn
-            logger.info("👁️ OBSERVATION: Storing results and updating memory...")
+            logger.info("OBSERVATION: Storing results and updating memory...")
             conversation_stored = self.conversation_memory.store_interaction(
                 medical_query, medical_response, self.session_id
             )

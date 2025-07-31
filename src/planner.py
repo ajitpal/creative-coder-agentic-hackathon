@@ -35,6 +35,7 @@ class QueryPlan:
     """Execution plan for a medical query"""
     query_id: str
     query_type: QueryType
+    query_text: str = ""  # Store the original query text
     tools_required: List[str] = field(default_factory=list)
     execution_steps: List[Dict[str, Any]] = field(default_factory=list)
     priority: int = 1
@@ -45,6 +46,7 @@ class QueryPlan:
     context_requirements: Dict[str, Any] = field(default_factory=dict)
     estimated_complexity: str = "simple"
     medical_disclaimers: List[str] = field(default_factory=list)
+    context: List[str] = field(default_factory=list) # Added context field
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert plan to dictionary"""
@@ -60,7 +62,8 @@ class QueryPlan:
             'key_entities': self.key_entities,
             'context_requirements': self.context_requirements,
             'estimated_complexity': self.estimated_complexity,
-            'medical_disclaimers': self.medical_disclaimers
+            'medical_disclaimers': self.medical_disclaimers,
+            'context': self.context # Added context to dict
         }
 
 class QueryPlanner:
@@ -222,7 +225,7 @@ class QueryPlanner:
         
         try:
             # Step 1: Basic classification using patterns
-            basic_classification = self._classify_query_basic(query.query_text)
+            basic_classification = await self._classify_query_basic(query.query_text)
             
             # Step 2: Enhanced analysis using Gemini if available
             if self.gemini_client:
@@ -242,23 +245,25 @@ class QueryPlanner:
             # Step 6: Add medical disclaimers
             disclaimers = self._select_disclaimers(gemini_analysis['query_type'], urgency_level)
             
-            # Step 7: Calculate priority
-            priority = self._calculate_priority(urgency_level, gemini_analysis['confidence'])
+            # Step 7: Detect context
+            detected_context = self._detect_context(query.query_text)
             
             # Create the plan
             plan = QueryPlan(
                 query_id=query.id,
                 query_type=QueryType(gemini_analysis['query_type']),
+                query_text=query.query_text,  # Store the original query text
                 tools_required=tools_required,
                 execution_steps=execution_steps,
-                priority=priority,
+                priority=self._calculate_priority(urgency_level, gemini_analysis['confidence']),
                 urgency_level=urgency_level,
                 confidence=gemini_analysis['confidence'],
                 reasoning=gemini_analysis.get('reasoning', ''),
                 key_entities=gemini_analysis.get('key_entities', []),
                 context_requirements=self._determine_context_requirements(tools_required),
                 estimated_complexity=self._estimate_complexity(tools_required),
-                medical_disclaimers=disclaimers
+                medical_disclaimers=disclaimers,
+                context=detected_context # Add detected context to plan
             )
             
             logger.info(f"Query analysis complete: {plan.query_type.value} (confidence: {plan.confidence:.2f})")
@@ -269,7 +274,7 @@ class QueryPlanner:
             # Return fallback plan
             return self._create_fallback_plan(query)
     
-    def _classify_query_basic(self, query_text: str) -> Dict[str, Any]:
+    async def _classify_query_basic(self, query_text: str) -> Dict[str, Any]:
         """Basic query classification using patterns"""
         query_lower = query_text.lower()
         scores = {}
@@ -303,7 +308,7 @@ class QueryPlanner:
             confidence = 0.3
         
         # Extract potential entities
-        entities = self._extract_basic_entities(query_text)
+        entities = await self._extract_basic_entities(query_text)
         
         return {
             'query_type': best_type,
@@ -387,31 +392,239 @@ class QueryPlanner:
         # Fallback to basic classification
         return basic_classification
     
-    def _extract_basic_entities(self, query_text: str) -> List[str]:
-        """Extract basic entities from query text"""
+    async def _extract_basic_entities(self, query_text: str) -> List[str]:
+        """Extract basic entities from query text using generic NLP approaches"""
         entities = []
         
-        # Common medical terms
-        medical_terms = [
-            'diabetes', 'hypertension', 'asthma', 'cancer', 'heart disease',
-            'aspirin', 'ibuprofen', 'metformin', 'insulin', 'lisinopril',
-            'headache', 'fever', 'pain', 'nausea', 'fatigue'
+        query_lower = query_text.lower()
+        logger.debug(f"Extracting entities from query: '{query_text}'")
+        
+        # Generic symptom extraction patterns - more flexible
+        symptom_patterns = [
+            # "I have X" patterns
+            r'i have (\w+(?:\s+\w+)*)',
+            r'i\'m having (\w+(?:\s+\w+)*)',
+            r'i am having (\w+(?:\s+\w+)*)',
+            r'i\'ve been having (\w+(?:\s+\w+)*)',
+            r'i have been having (\w+(?:\s+\w+)*)',
+            
+            # "symptoms:" patterns
+            r'symptoms?[:\s]+(\w+(?:\s+\w+)*)',
+            r'my symptoms?[:\s]+(\w+(?:\s+\w+)*)',
+            
+            # "experiencing" patterns
+            r'i\'m experiencing (\w+(?:\s+\w+)*)',
+            r'i am experiencing (\w+(?:\s+\w+)*)',
+            r'experiencing (\w+(?:\s+\w+)*)',
+            
+            # "feeling" patterns
+            r'i\'m feeling (\w+(?:\s+\w+)*)',
+            r'i am feeling (\w+(?:\s+\w+)*)',
+            r'feeling (\w+(?:\s+\w+)*)',
+            
+            # "suffering from" patterns
+            r'suffering from (\w+(?:\s+\w+)*)',
+            r'i\'m suffering from (\w+(?:\s+\w+)*)',
+            
+            # Generic pain patterns
+            r'(\w+(?:\s+\w+)*)\s+pain',
+            r'pain in (\w+(?:\s+\w+)*)',
+            r'(\w+(?:\s+\w+)*)\s+ache',
+            r'ache in (\w+(?:\s+\w+)*)',
+            
+            # Generic symptom patterns
+            r'(\w+(?:\s+\w+)*)\s+discomfort',
+            r'(\w+(?:\s+\w+)*)\s+problem',
+            r'(\w+(?:\s+\w+)*)\s+issue',
+            r'(\w+(?:\s+\w+)*)\s+trouble',
+            
+            # Drug/medication patterns
+            r'tell me about (\w+(?:\s+\w+)*)',
+            r'what about (\w+(?:\s+\w+)*)',
+            r'(\w+(?:\s+\w+)*)\s+side effects',
+            r'(\w+(?:\s+\w+)*)\s+safety',
+            r'(\w+(?:\s+\w+)*)\s+recall',
+            r'drug (\w+(?:\s+\w+)*)',
+            r'medication (\w+(?:\s+\w+)*)',
+            r'medicine (\w+(?:\s+\w+)*)',
+            r'is (\w+(?:\s+\w+)*) safe',
+            r'is (\w+(?:\s+\w+)*) effective',
+            r'can i take (\w+(?:\s+\w+)*)',
+            r'should i take (\w+(?:\s+\w+)*)',
+            r'about (\w+(?:\s+\w+)*) drug',
+            r'about (\w+(?:\s+\w+)*) medication',
         ]
         
-        query_lower = query_text.lower()
-        for term in medical_terms:
-            if term in query_lower:
-                entities.append(term)
+        # Add patterns for common query formats to extract medical terms
+        common_query_patterns = [
+            # "what is" pattern
+            r"what is ([\w\s]+)(?:\?|$)",
+            # "tell me about" pattern
+            r"tell me about ([\w\s]+)(?:\?|$)",
+            # "define" pattern
+            r"define ([\w\s]+)(?:\?|$)",
+            # "explain" pattern
+            r"explain ([\w\s]+)(?:\?|$)",
+            # "information on" pattern
+            r"information on ([\w\s]+)(?:\?|$)",
+            # "what does X mean" pattern
+            r"what does ([\w\s]+) mean(?:\?|$)",
+            # "is X safe" pattern
+            r"is ([\w\s]+) safe(?:\?|$)",
+            # "is X effective" pattern
+            r"is ([\w\s]+) effective(?:\?|$)",
+            # "can I take X" pattern
+            r"can i take ([\w\s]+)(?:\?|$)"
+        ]
+        
+        for query_pattern in common_query_patterns:
+            term_match = re.search(query_pattern, query_lower)
+            if term_match:
+                term = term_match.group(1).strip()
+                if term and len(term) > 2:
+                    entities.append(term)
+                    logger.debug(f"Found entity via query pattern '{query_pattern}': '{term}'")
+
+        for pattern in symptom_patterns:
+            matches = re.findall(pattern, query_lower)
+            for match in matches:
+                if match and len(match) > 2:
+                    # Clean up the match and add it
+                    clean_match = match.strip()
+                    if clean_match and len(clean_match) > 2:
+                        entities.append(clean_match)
+                        logger.debug(f"Found entity via pattern '{pattern}': '{clean_match}'")
+        
+        # Generic symptom phrase extraction after common indicators
+        symptom_indicators = [
+            'symptoms:', 'having', 'experiencing', 'feeling', 'suffering',
+            'problem with', 'issue with', 'trouble with', 'discomfort in',
+            'pain in', 'ache in', 'problem in', 'issue in'
+        ]
+        
+        for indicator in symptom_indicators:
+            if indicator in query_lower:
+                # Find text after the indicator
+                parts = query_lower.split(indicator)
+                if len(parts) > 1:
+                    symptom_text = parts[1].strip()
+                    # Extract meaningful symptom phrases (2-4 words)
+                    words = symptom_text.split()
+                    if len(words) >= 2:
+                        # Look for meaningful symptom phrases
+                        for i in range(len(words) - 1):
+                            for phrase_length in [2, 3, 4]:  # Try 2, 3, or 4 word phrases
+                                if i + phrase_length <= len(words):
+                                    phrase = ' '.join(words[i:i+phrase_length])
+                                    # Filter out common stop words and short phrases
+                                    if (len(phrase) > 3 and 
+                                        not any(word in ['and', 'or', 'with', 'the', 'a', 'an', 'my', 'is', 'are', 'was', 'were', 'been', 'have', 'has', 'had'] 
+                                               for word in words[i:i+phrase_length])):
+                                        entities.append(phrase)
+                                        logger.debug(f"Found symptom phrase after '{indicator}': '{phrase}'")
         
         # Extract quoted terms
         quoted_terms = re.findall(r'"([^"]+)"', query_text)
         entities.extend(quoted_terms)
+        if quoted_terms:
+            logger.debug(f"Found quoted terms: {quoted_terms}")
         
-        # Extract capitalized terms (potential proper nouns)
+        # Extract capitalized terms (potential proper nouns) - but be more selective
+        # Only extract if they're not common words
+        common_words = {
+            'tell', 'what', 'how', 'when', 'where', 'why', 'about', 'side', 'effects', 
+            'safety', 'recall', 'i', 'am', 'have', 'having', 'these', 'symptoms',
+            'my', 'is', 'are', 'was', 'were', 'been', 'has', 'had', 'the', 'a', 'an',
+            'and', 'or', 'with', 'in', 'on', 'at', 'to', 'for', 'of', 'from'
+        }
         capitalized_terms = re.findall(r'\b[A-Z][a-z]+\b', query_text)
-        entities.extend(capitalized_terms[:3])  # Limit to first 3
+        for term in capitalized_terms:
+            if term.lower() not in common_words and len(term) > 2:
+                entities.append(term)
+                logger.debug(f"Found capitalized term: '{term}'")
         
-        return list(set(entities))  # Remove duplicates
+        # Remove duplicates and return
+        final_entities = list(set(entities))
+        logger.debug(f"Final extracted entities: {final_entities}")
+        
+        # Special logging for symptom queries
+        if any(word in query_lower for word in ['symptoms', 'having', 'feeling', 'experiencing', 'suffering', 'problem', 'issue', 'trouble']):
+            logger.info(f"Symptom query detected. Extracted entities: {final_entities}")
+        
+        # If this looks like a symptom query but we didn't extract many entities, try Gemini
+        if (any(word in query_lower for word in ['symptoms', 'having', 'feeling', 'experiencing', 'suffering', 'problem', 'issue', 'trouble']) 
+            and len(final_entities) <= 1 and self.gemini_client):
+            try:
+                gemini_entities = await self._extract_entities_with_gemini(query_text)
+                if gemini_entities:
+                    final_entities.extend(gemini_entities)
+                    final_entities = list(set(final_entities))  # Remove duplicates
+                    logger.info(f"Added Gemini-extracted entities: {gemini_entities}")
+            except Exception as e:
+                logger.warning(f"Gemini entity extraction failed: {e}")
+                
+        # If this looks like a drug query but we didn't extract any entities, try Gemini or use fallback
+        drug_keywords = ['drug', 'medication', 'medicine', 'pill', 'tablet', 'safe', 'effective', 'take', 'side effects']
+        if (any(word in query_lower for word in drug_keywords) and len(final_entities) == 0):
+            # Try Gemini first if available
+            if self.gemini_client:
+                try:
+                    gemini_entities = await self._extract_entities_with_gemini(query_text)
+                    if gemini_entities:
+                        final_entities.extend(gemini_entities)
+                        final_entities = list(set(final_entities))  # Remove duplicates
+                        logger.info(f"Added Gemini-extracted entities for drug query: {gemini_entities}")
+                except Exception as e:
+                    logger.warning(f"Gemini entity extraction failed for drug query: {e}")
+            
+            # If still no entities, extract potential drug names from the query
+            if len(final_entities) == 0:
+                # Extract words that might be drug names (excluding common words)
+                common_words = {'is', 'the', 'a', 'an', 'and', 'or', 'with', 'about', 'for', 'me', 'i', 'my', 
+                               'what', 'how', 'when', 'where', 'why', 'can', 'should', 'would', 'could', 'safe', 
+                               'effective', 'take', 'drug', 'medication', 'medicine', 'pill', 'tablet', 'side', 'effects'}
+                
+                words = query_lower.split()
+                for word in words:
+                    if word not in common_words and len(word) > 3:
+                        final_entities.append(word)
+                        logger.info(f"Added potential drug name as fallback: {word}")
+                        break  # Just add the first potential drug name
+        
+        return final_entities
+    
+    async def _extract_entities_with_gemini(self, query_text: str) -> List[str]:
+        """Use Gemini to extract medical entities from complex queries"""
+        try:
+            prompt = f"""
+            Extract all medical entities (symptoms, conditions, medications, body parts) from this query:
+            "{query_text}"
+            
+            Return only a JSON array of strings, no explanations. Focus on medical terms and symptoms.
+            Example: ["headache", "fever", "body pain"]
+            
+            JSON:
+            """
+            
+            response = await self.gemini_client.generate_response(prompt, use_functions=False, max_tokens=200)
+            
+            # Try to parse JSON response
+            import json
+            try:
+                # Look for JSON array in response
+                json_match = re.search(r'\[.*\]', response.text, re.DOTALL)
+                if json_match:
+                    entities = json.loads(json_match.group())
+                    if isinstance(entities, list):
+                        return [str(entity).strip() for entity in entities if entity and len(str(entity).strip()) > 2]
+            except json.JSONDecodeError:
+                logger.warning("Failed to parse Gemini entity extraction response as JSON")
+            
+            return []
+            
+        except Exception as e:
+            logger.warning(f"Gemini entity extraction error: {e}")
+            return []
     
     def _assess_urgency(self, query_text: str, analysis: Dict[str, Any]) -> UrgencyLevel:
         """Assess urgency level of the query"""
@@ -641,6 +854,7 @@ class QueryPlanner:
         return QueryPlan(
             query_id=query.id,
             query_type=QueryType.MEDICAL_TERM,  # Safe default
+            query_text=query.query_text,  # Store the original query text
             tools_required=['search_medical_term'],
             execution_steps=[{
                 'step_number': 1,
@@ -656,6 +870,25 @@ class QueryPlanner:
             medical_disclaimers=[self.disclaimer_templates['general']]
         )
     
+    def _detect_context(self, query_text: str) -> list:
+        """Detect context-specific health/safety queries"""
+        context_keywords = {
+            'pregnancy': ['pregnancy', 'pregnant', 'gestation', 'expecting', 'third trimester'],
+            'breastfeeding': ['breastfeeding', 'nursing', 'lactation', 'breast milk'],
+            'children': ['children', 'child', 'pediatric', 'kids', 'infant', 'baby', 'toddler'],
+            'elderly': ['elderly', 'geriatric', 'older adults', 'senior', 'aged'],
+            'kidney': ['kidney', 'renal', 'nephro', 'kidney disease', 'renal impairment'],
+            'liver': ['liver', 'hepatic', 'liver disease', 'hepatic impairment'],
+        }
+        found_contexts = []
+        query_lower = query_text.lower()
+        for context, keywords in context_keywords.items():
+            for kw in keywords:
+                if kw in query_lower:
+                    found_contexts.append(context)
+                    break
+        return found_contexts
+
     def get_planning_statistics(self) -> Dict[str, Any]:
         """Get statistics about planning capabilities"""
         return {
